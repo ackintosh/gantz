@@ -16,28 +16,28 @@ use std::net::Ipv4Addr;
 #[tokio::main]
 async fn main() {
     let now = Utc::now();
-    // TODO: error handling
-    // The consensus document is compressed using deflate algorithm.
-    let client = reqwest::Client::builder().deflate(true).build().unwrap();
 
-    let body = if let Some(consensus_document) = get_consensus_document_from_cache(&now).await {
+    let consensus = if let Some(document) = get_consensus_document_from_cache(&now).await {
         println!("Using cached consensus document.");
-        consensus_document
+        parse_consensus_document(&document).unwrap()
     } else {
         // TODO: Select directory authority randomly.
         let da = directory_authorities().pop().unwrap();
         println!("Downloading consensus document from {}", da.consensus_url());
+        // The consensus document is compressed using deflate algorithm.
+        let client = reqwest::Client::builder().deflate(true).build().unwrap();
         // TODO: error handling
         let res = client.get(da.consensus_url()).send().await.unwrap();
         // TODO: error handling
-        res.text().await.unwrap()
+        let document = res.text().await.unwrap();
+        let consensus = parse_consensus_document(&document).unwrap();
+        cache_consensus_document(&document, &consensus.valid_until).await;
+
+        consensus
     };
 
     // TODO: error handling
-    let consensus = parse_consensus_document(&body).unwrap();
     assert!(consensus.valid_after <= now && now <= consensus.valid_until);
-
-    cache_consensus_document(&body, &consensus.valid_until).await;
     println!("{:?}", consensus);
 }
 
