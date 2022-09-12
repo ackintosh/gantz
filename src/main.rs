@@ -1,3 +1,7 @@
+mod consensus;
+
+use crate::consensus::parse_consensus_document;
+use chrono::{NaiveDateTime, Utc};
 use std::net::Ipv4Addr;
 
 // *** Specs ***
@@ -9,19 +13,23 @@ use std::net::Ipv4Addr;
 
 #[tokio::main]
 async fn main() {
+    let now = Utc::now();
     // TODO: error handling
     // The consensus document is compressed using deflate algorithm.
     let client = reqwest::Client::builder().deflate(true).build().unwrap();
 
-    for da in directory_authorities() {
-        println!("{}", da.consensus_url());
-        // TODO: error handling
-        let res = client.get(da.consensus_url()).send().await.unwrap();
-        // TODO: error handling
-        let body = res.text().await.unwrap();
+    // TODO: Select directory authority randomly.
+    let da = directory_authorities().pop().unwrap();
+    println!("{}", da.consensus_url());
+    // TODO: error handling
+    let res = client.get(da.consensus_url()).send().await.unwrap();
+    // TODO: error handling
+    let body = res.text().await.unwrap();
 
-        parse_consensus_document(body);
-    }
+    // TODO: error handling
+    let consensus = parse_consensus_document(body).unwrap();
+    assert!(consensus.valid_after <= now && now <= consensus.valid_until);
+    println!("{:?}", consensus);
 }
 
 fn directory_authorities() -> Vec<DirectoryAuthority> {
@@ -32,11 +40,12 @@ fn directory_authorities() -> Vec<DirectoryAuthority> {
     ]
 }
 
-fn parse_consensus_document(consensus: String) {
+fn cache_consensus_document(consensus: &String) {
     for line in consensus.lines() {
-        // println!("{}", line);
-        if line.starts_with("r ") {
-            println!("{}", line);
+        if line.starts_with("valid-until") {
+            let vu = line.split_whitespace().collect::<Vec<_>>();
+            assert_eq!(2, vu.len());
+            let dt = NaiveDateTime::parse_from_str(vu[1], "%Y-%m-%d %H:%M:%S");
         }
     }
 }
