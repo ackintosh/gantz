@@ -593,6 +593,7 @@ dependencies = [
 name = "gantz"
 version = "0.1.0"
 dependencies = [
+ "bitflags",
  "cacache",
  "chrono",
  "dirs",

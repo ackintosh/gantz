@@ -1,7 +1,10 @@
+use bitflags::bitflags;
 use chrono::{DateTime, NaiveDateTime, Utc};
+use std::net::Ipv4Addr;
 
 const CACHE_KEY_BODY: &str = "consensus_document_body";
 const CACHE_KEY_VALID_UNTIL: &str = "consensus_document_valid_until";
+const ONION_ROUTER_LIMIT: usize = 100;
 
 fn cache_dir() -> String {
     format!("{}/.gants", dirs::home_dir().unwrap().display())
@@ -40,6 +43,8 @@ pub(crate) async fn get_consensus_document_from_cache(now: &DateTime<Utc>) -> Op
 pub(crate) fn parse_consensus_document(consensus: &String) -> Result<Consensus, ParseError> {
     let mut valid_after = None;
     let mut valid_until = None;
+    let mut tmp_onion_router: Option<OnionRouter> = None;
+    let mut onion_routers = vec![];
 
     for line in consensus.lines() {
         let strs = line.split_whitespace().collect::<Vec<_>>();
@@ -84,15 +89,52 @@ pub(crate) fn parse_consensus_document(consensus: &String) -> Result<Consensus, 
                     }
                 }
             }
+            "r" => {
+                if let Some(or) = tmp_onion_router {
+                    if or.is_stable() {
+                        onion_routers.push(or);
+                        if onion_routers.len() >= ONION_ROUTER_LIMIT {
+                            tmp_onion_router = None;
+                            break;
+                        }
+                    }
+                }
+                // "r" SP nickname SP identity SP digest SP publication SP IP SP ORPort SP DirPort
+                //         NL
+                tmp_onion_router = Some(OnionRouter {
+                    nickname: strs[1].to_string(),
+                    ip: strs[5].parse().expect("valid IPv4 address"),
+                    or_port: strs[6].parse().expect("valid (OR) port number"),
+                    dir_port: strs[7].parse().expect("valid (Dir) port number"),
+                    flags: Flags::empty(),
+                });
+            }
+            // A series of space-separated status flags.
+            "s" => {
+                if let Some(or) = tmp_onion_router.as_mut() {
+                    for flag_index in 1..strs.len() {
+                        or.flags.insert(strs[flag_index].into());
+                    }
+                } else {
+                    panic!("No tmp_onion_router exists");
+                }
+            }
             _ => {
                 // TODO
             }
         }
     }
 
+    if let Some(or) = tmp_onion_router {
+        if or.is_stable() {
+            onion_routers.push(or);
+        }
+    }
+
     Ok(Consensus {
         valid_after: valid_after.unwrap(),
         valid_until: valid_until.unwrap(),
+        onion_routers,
     })
 }
 
@@ -107,4 +149,65 @@ pub(crate) enum ParseError {
 pub(crate) struct Consensus {
     pub(crate) valid_after: DateTime<Utc>,
     pub(crate) valid_until: DateTime<Utc>,
+    pub(crate) onion_routers: Vec<OnionRouter>,
+}
+
+#[derive(Debug)]
+pub(crate) struct OnionRouter {
+    nickname: String,
+    ip: Ipv4Addr,
+    or_port: u16,
+    dir_port: u16,
+    flags: Flags,
+}
+
+impl OnionRouter {
+    fn is_stable(&self) -> bool {
+        for f in [Flags::STABLE, Flags::FAST, Flags::VALID, Flags::RUNNING] {
+            if !self.flags.contains(f) {
+                return false;
+            }
+        }
+
+        true
+    }
+}
+
+bitflags! {
+    pub(crate) struct Flags: u32 {
+        const AUTHORITY = 0b0000000000001;
+        const BAD_EXIT = 0b0000000000010;
+        const EXIT = 0b0000000000100;
+        const FAST = 0b0000000001000;
+        const GUARD = 0b0000000010000;
+        const HS_DIR = 0b0000000100000;
+        const MIDDLE_ONLY = 0b0000001000000;
+        const NO_ED_CONSENSUS = 0b0000010000000;
+        const STABLE = 0b0000100000000;
+        const STALE_DESC = 0b0001000000000;
+        const RUNNING = 0b0010000000000;
+        const VALID = 0b0100000000000;
+        const V2DIR = 0b1000000000000;
+    }
+}
+
+impl From<&str> for Flags {
+    fn from(s: &str) -> Self {
+        match s {
+            "Authority" => Flags::AUTHORITY,
+            "BadExit" => Flags::BAD_EXIT,
+            "Exit" => Flags::EXIT,
+            "Fast" => Flags::FAST,
+            "Guard" => Flags::GUARD,
+            "HSDir" => Flags::HS_DIR,
+            "MiddleOnly" => Flags::MIDDLE_ONLY,
+            "NoEdConsensus" => Flags::NO_ED_CONSENSUS,
+            "Stable" => Flags::STABLE,
+            "StaleDesc" => Flags::STALE_DESC,
+            "Running" => Flags::RUNNING,
+            "Valid" => Flags::VALID,
+            "V2Dir" => Flags::V2DIR,
+            _ => unreachable!(),
+        }
+    }
 }
