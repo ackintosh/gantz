@@ -162,9 +162,21 @@ pub(crate) struct OnionRouter {
 }
 
 impl OnionRouter {
+    // 5.4.1. Choosing routers for circuits.
+    // https://github.com/torproject/torspec/blob/main/dir-spec.txt
+    //
+    // - Clients SHOULD NOT use non-'Valid' or non-'Running' routers unless
+    //   requested to do so.
+    //
+    // - Clients SHOULD NOT use non-'Fast' routers for any purpose other than
+    //   very-low-bandwidth circuits (such as introduction circuits).
+    //
+    // - Clients SHOULD NOT use non-'Stable' routers for circuits that are
+    //   likely to need to be open for a very long time (such as those used for
+    //   IRC or SSH connections).
     fn is_stable(&self) -> bool {
         self.flags
-            .contains(Flags::STABLE | Flags::FAST | Flags::VALID | Flags::RUNNING)
+            .contains(Flags::VALID | Flags::RUNNING | Flags::FAST | Flags::STABLE)
     }
 
     fn is_available(&self) -> bool {
