@@ -1,5 +1,6 @@
 use bitflags::bitflags;
 use chrono::{DateTime, NaiveDateTime, Utc};
+use rand::Rng;
 use std::net::Ipv4Addr;
 
 const CACHE_KEY_BODY: &str = "consensus_document_body";
@@ -152,7 +153,30 @@ pub(crate) struct Consensus {
     pub(crate) onion_routers: Vec<OnionRouter>,
 }
 
-#[derive(Debug)]
+impl Consensus {
+    pub(crate) fn choose_guard_relay(&self) -> Result<&OnionRouter, String> {
+        let mut rng = rand::thread_rng();
+        let uniform = rand::distributions::Uniform::new(0, self.onion_routers.len() - 1);
+
+        let mut attempted = 0;
+
+        while attempted < 100 {
+            let i = rng.sample(uniform);
+
+            if let Some(or) = self.onion_routers.get(i) {
+                if or.flags.contains(Flags::GUARD) {
+                    return Ok(or);
+                }
+            }
+
+            attempted += 1;
+        }
+
+        return Err("Could not find aguard node.".to_string());
+    }
+}
+
+#[derive(Clone, Debug)]
 pub(crate) struct OnionRouter {
     nickname: String,
     ip: Ipv4Addr,
