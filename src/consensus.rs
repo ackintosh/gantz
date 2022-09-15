@@ -1,5 +1,6 @@
 use bitflags::bitflags;
 use chrono::{DateTime, NaiveDateTime, Utc};
+use rand::Rng;
 use std::net::Ipv4Addr;
 
 const CACHE_KEY_BODY: &str = "consensus_document_body";
@@ -91,7 +92,7 @@ pub(crate) fn parse_consensus_document(consensus: &String) -> Result<Consensus, 
             }
             "r" => {
                 if let Some(or) = tmp_onion_router {
-                    if or.is_stable() {
+                    if or.is_available() {
                         onion_routers.push(or);
                         if onion_routers.len() >= ONION_ROUTER_LIMIT {
                             tmp_onion_router = None;
@@ -126,7 +127,7 @@ pub(crate) fn parse_consensus_document(consensus: &String) -> Result<Consensus, 
     }
 
     if let Some(or) = tmp_onion_router {
-        if or.is_stable() {
+        if or.is_available() {
             onion_routers.push(or);
         }
     }
@@ -152,7 +153,30 @@ pub(crate) struct Consensus {
     pub(crate) onion_routers: Vec<OnionRouter>,
 }
 
-#[derive(Debug)]
+impl Consensus {
+    pub(crate) fn choose_guard_relay(&self) -> Result<&OnionRouter, String> {
+        let mut rng = rand::thread_rng();
+        let uniform = rand::distributions::Uniform::new(0, self.onion_routers.len() - 1);
+
+        let mut attempted = 0;
+
+        while attempted < 100 {
+            let i = rng.sample(uniform);
+
+            if let Some(or) = self.onion_routers.get(i) {
+                if or.flags.contains(Flags::GUARD) {
+                    return Ok(or);
+                }
+            }
+
+            attempted += 1;
+        }
+
+        return Err("Could not find aguard node.".to_string());
+    }
+}
+
+#[derive(Clone, Debug)]
 pub(crate) struct OnionRouter {
     nickname: String,
     ip: Ipv4Addr,
@@ -162,14 +186,26 @@ pub(crate) struct OnionRouter {
 }
 
 impl OnionRouter {
+    // 5.4.1. Choosing routers for circuits.
+    // https://github.com/torproject/torspec/blob/main/dir-spec.txt
+    //
+    // - Clients SHOULD NOT use non-'Valid' or non-'Running' routers unless
+    //   requested to do so.
+    //
+    // - Clients SHOULD NOT use non-'Fast' routers for any purpose other than
+    //   very-low-bandwidth circuits (such as introduction circuits).
+    //
+    // - Clients SHOULD NOT use non-'Stable' routers for circuits that are
+    //   likely to need to be open for a very long time (such as those used for
+    //   IRC or SSH connections).
     fn is_stable(&self) -> bool {
-        for f in [Flags::STABLE, Flags::FAST, Flags::VALID, Flags::RUNNING] {
-            if !self.flags.contains(f) {
-                return false;
-            }
-        }
+        self.flags
+            .contains(Flags::VALID | Flags::RUNNING | Flags::FAST | Flags::STABLE)
+    }
 
-        true
+    fn is_available(&self) -> bool {
+        // "0" represents "none"
+        self.is_stable() && self.dir_port > 0
     }
 }
 

@@ -2,6 +2,7 @@ mod consensus;
 
 use crate::consensus::{
     cache_consensus_document, get_consensus_document_from_cache, parse_consensus_document,
+    Consensus, OnionRouter,
 };
 use chrono::Utc;
 use std::net::Ipv4Addr;
@@ -17,6 +18,9 @@ use std::net::Ipv4Addr;
 async fn main() {
     let now = Utc::now();
 
+    // ////////////////////////////////////////////////////////////////////////
+    // Downloading server microdescriptors.
+    // ////////////////////////////////////////////////////////////////////////
     let consensus = if let Some(document) = get_consensus_document_from_cache(&now).await {
         println!("Using cached consensus document.");
         parse_consensus_document(&document).unwrap()
@@ -36,9 +40,13 @@ async fn main() {
         consensus
     };
 
-    // TODO: error handling
     assert!(consensus.valid_after <= now && now <= consensus.valid_until);
-    println!("{:?}", consensus);
+    // println!("{:?}", consensus);
+
+    // ////////////////////////////////////////////////////////////////////////
+    // Choosing routers for circuits.
+    // ////////////////////////////////////////////////////////////////////////
+    build_circuit(&consensus);
 }
 
 fn directory_authorities() -> Vec<DirectoryAuthority> {
@@ -93,4 +101,17 @@ impl DirectoryAuthority {
             self.ip, self.dir_port
         )
     }
+}
+
+fn build_circuit(consensus: &Consensus) -> Circuit {
+    let guard_relay = consensus.choose_guard_relay().unwrap().clone();
+    println!("{:?}", guard_relay);
+
+    Circuit {
+        guard_relay,
+    }
+}
+
+struct Circuit {
+    guard_relay: OnionRouter,
 }
