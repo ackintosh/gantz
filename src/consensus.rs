@@ -91,7 +91,7 @@ pub(crate) fn parse_consensus_document(consensus: &String) -> Result<Consensus, 
             }
             "r" => {
                 if let Some(or) = tmp_onion_router {
-                    if or.is_stable() {
+                    if or.is_available() {
                         onion_routers.push(or);
                         if onion_routers.len() >= ONION_ROUTER_LIMIT {
                             tmp_onion_router = None;
@@ -126,7 +126,7 @@ pub(crate) fn parse_consensus_document(consensus: &String) -> Result<Consensus, 
     }
 
     if let Some(or) = tmp_onion_router {
-        if or.is_stable() {
+        if or.is_available() {
             onion_routers.push(or);
         }
     }
@@ -163,13 +163,13 @@ pub(crate) struct OnionRouter {
 
 impl OnionRouter {
     fn is_stable(&self) -> bool {
-        for f in [Flags::STABLE, Flags::FAST, Flags::VALID, Flags::RUNNING] {
-            if !self.flags.contains(f) {
-                return false;
-            }
-        }
+        self.flags
+            .contains(Flags::STABLE | Flags::FAST | Flags::VALID | Flags::RUNNING)
+    }
 
-        true
+    fn is_available(&self) -> bool {
+        // "0" represents "none"
+        self.is_stable() && self.dir_port > 0
     }
 }
 
